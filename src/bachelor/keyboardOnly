@@ -1,0 +1,162 @@
+#!/usr/bin/env python
+
+import logging
+from pynput.keyboard import Key, Listener
+import smach
+import rospy
+import webbrowser
+
+index = 0
+evaluations = ['https://vu.fr/zXGa', 'https://vu.fr/XnRT', 'https://vu.fr/XLAq']
+
+#define state Greetings
+class Greetings(smach.State):
+
+    def __init__(self):
+        smach.State.__init__(self, outcomes=['nextContent'])
+
+    def execute(self, userdata):
+        
+        self.count = False
+
+        print('\nHello, Thank you for attending this course. We are going to start soon !\n\n---------------\nPress ENTER to start\n---------------\n')
+
+        def show(key):
+            if key == Key.enter:
+                self.count = True
+                return False
+        with Listener(on_press = show) as ls:
+            ls.join()
+        if self.count:
+            return 'nextContent'
+                
+
+
+#define state Storytelling
+class Storytelling(smach.State):
+    def __init__(self):
+        smach.State.__init__(self, outcomes=['nextGoodbye', 'nextEvaluation', 'repeatStory'])
+
+
+    def execute(self, userdata):
+        self.repeatStory = False
+        self.evaluation = False
+        self.goodbye = False
+
+        global index
+        with open('story{}'.format(index+1), 'r') as f:
+            print(f.read())
+
+
+        print('\n-----------------\nPress ENTER to go to evaluation\nPress SPACE to repeat the story\nPress ESC to say goodbye \n-----------------\n')
+        
+
+        def show(key):
+            if key == Key.esc: #go to goodbye
+                self.goodbye = True
+                return False
+            if key == Key.space: #repeat the same story
+                self.repeatStory = True
+                return False
+            if key == Key.enter: #go to evaluation
+                self.evaluation = True
+                return False
+        with Listener(on_press = show) as ls:
+            ls.join()
+
+        if self.goodbye:
+            return 'nextGoodbye'
+        if self.repeatStory:
+            rospy.loginfo('same story')
+            return 'repeatStory'
+        if self.evaluation:
+            rospy.loginfo('evaluation')
+            return 'nextEvaluation'
+
+
+
+#define state Evaluation
+class Evaluation(smach.State):
+    def __init__(self):
+        smach.State.__init__(self, outcomes=['nextStory', 'nextGoodbye'])
+
+    def execute(self, userdata):
+        self.nextStory = False
+        self.goodbye = False
+        global index
+
+        webbrowser.open(evaluations[index])
+
+        print('\nThank you for completing the evaluation !')
+
+        if index == len(evaluations)-1:
+            print('\nYou have finished all the stories. Congratulations !\n')
+            return 'nextGoodbye'
+
+        print('\nDo you want to hear another story ?\n \n------------\nPress ENTER to hear another story\nPress ESC to say goodbye\n------------\n')
+
+        def show(key):
+            if key == Key.enter: #hear another story
+                global index
+                self.nextStory = True
+                index += 1
+                return False
+
+            if key == Key.esc: #go to goodbye
+                self.goodbye = True
+                return False
+
+        with Listener(on_press = show) as ls:
+            ls.join()
+
+        if self.nextStory:
+            return 'nextStory'
+        if self.goodbye:
+            return 'nextGoodbye'
+
+
+#define state Goodbye
+class Goodbye(smach.State):
+    def __init__(self):
+        smach.State.__init__(self, outcomes=['finishState'])
+
+    def execute(self, userdata):
+        
+        print('Thank you for your attention. See you next time!\n\n')
+        return 'finishState'
+        
+        
+
+
+def main():
+    rospy.init_node('smach_example_state_machine')
+
+    #create a smach state machine
+    sm = smach.StateMachine(outcomes=['outcome4'])
+    
+    #open the container
+    with sm:
+        #Add states to the container
+        smach.StateMachine.add('GREETINGS', Greetings(), transitions={
+            'nextContent':'STORYTELLING'
+        })
+        smach.StateMachine.add('STORYTELLING', Storytelling(), transitions={
+            'repeatStory':'STORYTELLING',
+            'nextEvaluation': 'EVALUATION',
+            'nextGoodbye':'GOODBYE'
+        })
+        smach.StateMachine.add('EVALUATION', Evaluation(), transitions = {
+            'nextStory': 'STORYTELLING',
+            'nextGoodbye': 'GOODBYE'
+
+        })
+        smach.StateMachine.add('GOODBYE', Goodbye(), transitions={
+            'finishState': 'outcome4'
+        })
+
+    #Execute smach plan
+    outcome = sm.execute()
+    
+
+if __name__ == '__main__':
+    main()
