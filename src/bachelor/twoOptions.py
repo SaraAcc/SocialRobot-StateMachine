@@ -4,18 +4,24 @@ from pynput.keyboard import Key, Listener
 import sys
 import smach
 import rospy
-import webbrowser
+import json
 from std_msgs.msg import String
 from qt_nuitrack_app.msg import Gestures
+import translators as ts
+from qt_robot_interface.srv import *
 
 #For the evaluations
 storyIndex = 0
-evaluations = ['https://vu.fr/zXGa', 'https://vu.fr/XnRT', 'https://vu.fr/XLAq']
+nbStories = 3
 
 #For the gestures
 stateIndex = 0
 state = ['Greetings', 'Storytelling', 'Evaluation', 'Goodbye']
 
+chosen_language = -1
+while chosen_language != 0 and chosen_language != 1 and chosen_language != 2:
+    print("Please choose your preferred language:\nType 0 for english\nType 1 for german\nType 2 for french")
+    chosen_language = int(input())
 
 nextGlobalState = ''
 
@@ -98,6 +104,20 @@ def gesture_callback(msg):
 #initiate node
 rospy.init_node('smach_example_state_machine')
 
+#Create service to change the language
+speechConfig = rospy.ServiceProxy('/qt_robot/speech/config', speech_config)
+rospy.wait_for_service('/qt_robot/speech/config')
+
+if chosen_language == 1:
+    language = 'de'
+    status = speechConfig("de-DE",0,0)
+elif chosen_language == 2:
+    language = 'fr'
+    status = speechConfig("fr-FR",0,0)
+else: 
+    status = speechConfig("en-EN",0,0)
+    language = 'en'
+
 #Create subscriber for the gestures
 rospy.Subscriber('/qt_nuitrack_app/gestures', Gestures, gesture_callback)
 
@@ -111,6 +131,14 @@ while (speechSay_pub.get_num_connections() == 0 ):
         sys.exit()
     rospy.sleep(1)
 
+def translation(message):
+    if language  != 'en':
+        content = ts.google(message, from_language='en', to_language=language)
+        print(content, "\n")
+        #speechSay_pub.publish(message) TODO
+    else:
+        print(message, "\n")
+        #speechSay_pub.publish(message)
 
 #define state Greetings
 class Greetings(smach.State):
@@ -120,14 +148,15 @@ class Greetings(smach.State):
 
     def execute(self, userdata):
         try:
-            print("Hello! Thank you for attending this course. We are going to start soon !\n")
-            #speechSay_pub.publish("Hello! Thank you for attending this course. We are going to start soon !") TODO
+            greetings = "Hello! Thank you for attending this course. We are going to start soon !"
+            translation(greetings)
         except rospy.ROSInterruptException:
             pass
 
-        print('Swipe UP or Press ENTER to start the course\n')
-        global nextGlobalState
+        instruction = 'Swipe UP or Press ENTER to start the course'
+        translation(instruction)
 
+        global nextGlobalState
         nextGlobalState = ''
         while nextGlobalState == '':
             pass 
@@ -149,11 +178,15 @@ class Storytelling(smach.State):
 
         with open('story{}'.format(storyIndex+1), 'r') as f:
             content = f.read()
-            print(content)
+            translation(content)
             #speechSay_pub.publish(content) TODO
 
-        print('\n-----------------\nSwipe RIGHT or press ENTER to go to evaluation\nSwipe LEFT or press SPACE to repeat the story\nSwipe UP or press ESC to say goodbye \n-----------------\n')
-
+        print('\n-----------------\n')
+        translation('Swipe RIGHT or press ENTER to go to evaluation')
+        translation('Swipe LEFT or press SPACE to repeat the story')
+        translation('Swipe UP or press ESC to say goodbye')
+        print('-----------------\n')
+        
         nextGlobalState = ''
         while nextGlobalState == '':
             pass 
@@ -171,17 +204,29 @@ class Evaluation(smach.State):
         global speechSay_pub
         global evaluations
 
-        #open the evaluation in a browser
-        #webbrowser.open(evaluations[storyIndex])
-        print('\nThank you for completing the evaluation !')
+        questions = open("questions{}".format(storyIndex+1)).read().splitlines()
+
+        faq = {}
+        for question in questions:
+            print(question)
+            response = input()
+            faq[question] = response
+
+        with open("responses{}.json".format(storyIndex+1), "w") as write_file:
+            json.dump(faq, write_file, indent="")
+
+        translation('Thank you for completing the evaluation !')
 
         #Go to goodbye if no stories left
-        if storyIndex == len(evaluations)-1:
-            #speechSay_pub.publish("You have finished all the stories. Congratulations !") TODO
-            print('\nYou have finished all the stories. Congratulations !\n')
+        if storyIndex == nbStories - 1:
+            translation('You have finished all the stories. Congratulations !')
             return 'nextGoodbye'
 
-        print('\nDo you want to hear another story ?\n \n------------\nSwipe RIGHT or press ENTER to hear another story\nSwipe UP or press ESC to say goodbye\n------------\n')
+        print('\n-----------------\n')
+        translation('Do you want to hear another story ?')
+        translation('Swipe RIGHT or press ENTER to hear another story')
+        translation('Swipe UP or press ESC to say goodbye')
+        print('-----------------\n')
         
         nextGlobalState = ''
         while nextGlobalState == '':
@@ -196,7 +241,7 @@ class Goodbye(smach.State):
     def execute(self, userdata):
         global speechSay_pub
         #speechSay_pub.publish("Thank you for your attention. See you next time !") TODO
-        print('Thank you for your attention. See you next time!\n\n')
+        translation('Thank you for your attention. See you next time!')
         return 'finishState'
         
 

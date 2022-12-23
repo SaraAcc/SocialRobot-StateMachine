@@ -54,8 +54,8 @@ def gesture_callback(msg):
 
 #initiate node
 rospy.init_node('smach_example_state_machine')
-
-#Create subscriber for the gestures
+ 
+#Create subscriber for the gestures TODO !!!!!!!!!!!!!!!!!!!!
 rospy.Subscriber('/qt_nuitrack_app/gestures', Gestures, gesture_callback)
 
 #Create publisher for the speech
