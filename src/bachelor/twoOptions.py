@@ -20,46 +20,44 @@ state = ['Greetings', 'Storytelling', 'Evaluation', 'Goodbye']
 
 chosen_language = -1
 while chosen_language != 0 and chosen_language != 1 and chosen_language != 2:
-    print("Please choose your preferred language:\nType 0 for english\nType 1 for german\nType 2 for french")
+    print("\nPlease choose your preferred language:\nType 0 for english\nType 1 for german\nType 2 for french\n")
     chosen_language = int(input())
 
 nextGlobalState = ''
+name = 'X'
 
 def show(key):
-    print('A key press has been detected')
     
     global nextGlobalState
     global stateIndex
     global state
     global storyIndex
 
-    print(state[stateIndex])
 
     if state[stateIndex] == 'Greetings':
-        if key == Key.enter: #Go to Storytelling
+        if key == Key.shift: #Go to Storytelling
             nextGlobalState = 'nextContent'
             stateIndex = 1
 
     elif state[stateIndex] == 'Storytelling':
-        if key== Key.enter: #Go to Evaluation
+        if key== Key.shift: #Go to Evaluation
             nextGlobalState = 'nextEvaluation'
             stateIndex = 2
-        elif key == Key.space: #Repeat the story
+        elif key == Key.alt: #Repeat the story
             nextGlobalState = 'repeatStory'
         elif key == Key.esc: #Goodbye
             nextGlobalState = 'nextGoodbye'
             stateIndex = 3
 
     elif state[stateIndex] == 'Evaluation':
-        if key == Key.enter: #Go to another story
+        if key == Key.shift: #Go to another story
             nextGlobalState = 'nextStory'
             storyIndex += 1
             stateIndex = 1
         elif key == Key.esc: #Goodbye
             nextGlobalState = 'nextGoodbye'
             stateIndex = 3
-
-    print(nextGlobalState)
+    
 
 #For the keyboard
 ls = Listener(on_press = show)
@@ -71,8 +69,7 @@ def gesture_callback(msg):
     global state
     global storyIndex
 
-    #prints to suppress TODO
-    print('call to gesture')
+    #prints for DEBUGGING
     print(msg.gestures[0].name)
 
     if state[stateIndex] == 'Greetings':
@@ -110,13 +107,14 @@ rospy.wait_for_service('/qt_robot/speech/config')
 
 if chosen_language == 1:
     language = 'de'
-    status = speechConfig("de-DE",0,0)
+    status = speechConfig("de-DE",0,100)
 elif chosen_language == 2:
     language = 'fr'
-    status = speechConfig("fr-FR",0,0)
-else: 
-    status = speechConfig("en-EN",0,0)
+    status = speechConfig("fr-FR",0,100)
+elif chosen_language == 0: 
     language = 'en'
+    status = speechConfig("en-US",0,100)
+    
 
 #Create subscriber for the gestures
 rospy.Subscriber('/qt_nuitrack_app/gestures', Gestures, gesture_callback)
@@ -131,14 +129,17 @@ while (speechSay_pub.get_num_connections() == 0 ):
         sys.exit()
     rospy.sleep(1)
 
-def translation(message):
+
+def translation(message, to_Say):
     if language  != 'en':
-        content = ts.google(message, from_language='en', to_language=language)
+        content = ts.google(message, from_language='en', to_language=language) 
         print(content, "\n")
-        #speechSay_pub.publish(message) TODO
+        if to_Say :
+           speechSay_pub.publish(content)
     else:
         print(message, "\n")
-        #speechSay_pub.publish(message)
+        if to_Say: 
+            speechSay_pub.publish(message)
 
 #define state Greetings
 class Greetings(smach.State):
@@ -147,14 +148,18 @@ class Greetings(smach.State):
         smach.State.__init__(self, outcomes=['nextContent'])
 
     def execute(self, userdata):
+        global name
+        first_question = "Please write your name here :"
+        translation(first_question, False)
+        name = input()
         try:
-            greetings = "Hello! Thank you for attending this course. We are going to start soon !"
-            translation(greetings)
+            greetings = "Hello {} ! My name is Q T Robot et we are going to learn new things today. Follow the instructions written in the screen !".format(name)
+            translation(greetings, True)
         except rospy.ROSInterruptException:
             pass
 
-        instruction = 'Swipe UP or Press ENTER to start the course'
-        translation(instruction)
+        instruction = 'Swipe UP or Press SHIFT to start the course'
+        translation(instruction, False)
 
         global nextGlobalState
         nextGlobalState = ''
@@ -178,13 +183,12 @@ class Storytelling(smach.State):
 
         with open('story{}'.format(storyIndex+1), 'r') as f:
             content = f.read()
-            translation(content)
-            #speechSay_pub.publish(content) TODO
+            translation(content, True)
 
         print('\n-----------------\n')
-        translation('Swipe RIGHT or press ENTER to go to evaluation')
-        translation('Swipe LEFT or press SPACE to repeat the story')
-        translation('Swipe UP or press ESC to say goodbye')
+        translation('Swipe RIGHT or press SHIFT to go to evaluation', False)
+        translation('Swipe LEFT or press ALT to repeat the story', False)
+        translation('Swipe UP or press ESC to say goodbye', False)
         print('-----------------\n')
         
         nextGlobalState = ''
@@ -202,30 +206,31 @@ class Evaluation(smach.State):
     def execute(self, userdata):
         global storyIndex
         global speechSay_pub
-        global evaluations
+        global nextGlobalState
+
 
         questions = open("questions{}".format(storyIndex+1)).read().splitlines()
 
         faq = {}
         for question in questions:
-            print(question)
+            qst = translation(question, False)
             response = input()
             faq[question] = response
 
         with open("responses{}.json".format(storyIndex+1), "w") as write_file:
             json.dump(faq, write_file, indent="")
 
-        translation('Thank you for completing the evaluation !')
+        translation('Thank you for completing the evaluation !', True)
 
         #Go to goodbye if no stories left
         if storyIndex == nbStories - 1:
-            translation('You have finished all the stories. Congratulations !')
+            translation('You have finished all the stories. Congratulations !', True)
             return 'nextGoodbye'
 
         print('\n-----------------\n')
-        translation('Do you want to hear another story ?')
-        translation('Swipe RIGHT or press ENTER to hear another story')
-        translation('Swipe UP or press ESC to say goodbye')
+        translation('Do you want to hear another story ?', True)
+        translation('Swipe RIGHT or press SHIFT to hear another story', False)
+        translation('Swipe UP or press ESC to say goodbye', False)
         print('-----------------\n')
         
         nextGlobalState = ''
@@ -239,9 +244,9 @@ class Goodbye(smach.State):
         smach.State.__init__(self, outcomes=['finishState'])
 
     def execute(self, userdata):
+        global name
         global speechSay_pub
-        #speechSay_pub.publish("Thank you for your attention. See you next time !") TODO
-        translation('Thank you for your attention. See you next time!')
+        translation('Thank you for your attention {}. See you next time!'.format(name), True)
         return 'finishState'
         
 
